@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import Loader from "../Loder";
 import { IoDownloadOutline } from "react-icons/io5";
-// Import jspdf and jspdf-autotable
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+// Import only jsPDF - no autotable dependency
+import { jsPDF } from 'jspdf';
+
+// Cache invalidation: v2.0
 
 const CoachDetails = () => {
   const { trainNumber, coach } = useParams();
@@ -85,72 +86,124 @@ const CoachDetails = () => {
     }
 
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF('p', 'mm', 'a4');
+      
+      // Set margins
+      const marginLeft = 10;
+      const marginTop = 10;
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let yPosition = marginTop;
 
-      const tableColumn = [
-        "Train Number",
-        "Train Name",
-        "Coach UID",
-        "Chain Status",
-        "Latitude",
-        "Longitude",
-        "Humidity (%)",
-        "Memory",
-        "Error",
-        "Date",
-        "Time"
-      ];
-
-      const tableRows = coachData.map(data => [
-        data.train_Number || "N/A",
-        data.train_Name || "N/A",
-        data.coach_uid || "N/A",
-        data.chain_status || "N/A",
-        data.latitude || "N/A",
-        data.longitude || "N/A",
-        data.humidity || "N/A",
-        data.memory || "N/A",
-        data.error || "N/A",
-        data.date || "N/A",
-        data.time || "N/A",
-      ]);
-
+      // Title
       doc.setFontSize(18);
-      doc.text(`Coach Details Report`, 14, 22);
-      doc.setFontSize(12);
-      doc.text(`Train: ${coachInfo?.train_Name || trainNumber} (${trainNumber})`, 14, 35);
-      doc.text(`Coach: ${coachInfo?.coach_name || 'Unknown'} (UID: ${coach})`, 14, 45);
-      doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 55);
+      doc.setFont(undefined, 'bold');
+      doc.text('Coach Details Report', marginLeft, yPosition);
+      yPosition += 12;
 
-      doc.autoTable({
-        head: [tableColumn],
-        body: tableRows,
-        startY: 65,
-        theme: 'grid',
-        styles: {
-          fontSize: 7,
-          cellPadding: 2,
-        },
-        headStyles: {
-          fillColor: [75, 0, 130],
-          textColor: 255,
-          fontStyle: 'bold'
-        },
-        alternateRowStyles: {
-          fillColor: [245, 245, 245]
-        },
-        columnStyles: {
-          0: { cellWidth: 15 },
-          1: { cellWidth: 20 },
-          2: { cellWidth: 12 },
-        }
+      // Metadata
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Train: ${coachInfo?.train_Name || trainNumber} (${trainNumber})`, marginLeft, yPosition);
+      yPosition += 6;
+      doc.text(`Coach: ${coachInfo?.coach_name || 'Unknown'} (UID: ${coach})`, marginLeft, yPosition);
+      yPosition += 6;
+      doc.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, yPosition);
+      yPosition += 6;
+      doc.text(`Total Records: ${coachData.length}`, marginLeft, yPosition);
+      yPosition += 10;
+
+      // Create simple table manually
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'bold');
+      
+      // Table header
+      const colWidths = [18, 18, 12, 15, 12, 12, 12, 10, 12, 10];
+      const headers = ['Train #', 'Train Name', 'Coach UID', 'Chain', 'Latitude', 'Longitude', 'Memory', 'Error', 'Date', 'Time'];
+      
+      // Draw header row with background
+      doc.setFillColor(75, 0, 130);
+      doc.setTextColor(255, 255, 255);
+      let xPos = marginLeft;
+      headers.forEach((header, index) => {
+        doc.rect(xPos, yPosition - 4, colWidths[index], 5, 'F');
+        doc.text(header, xPos + 1, yPosition, { maxWidth: colWidths[index] - 2 });
+        xPos += colWidths[index];
       });
 
-      const fileName = `coach_details_${trainNumber}_${coach}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      yPosition += 6;
+      doc.setTextColor(0, 0, 0);
+      doc.setFont(undefined, 'normal');
+      doc.setFontSize(8);
+
+      // Draw data rows
+      coachData.forEach((data, rowIndex) => {
+        // Check if we need a new page
+        if (yPosition > pageHeight - 15) {
+          doc.addPage();
+          yPosition = marginTop;
+          
+          // Redraw header on new page
+          doc.setFontSize(9);
+          doc.setFont(undefined, 'bold');
+          doc.setFillColor(75, 0, 130);
+          doc.setTextColor(255, 255, 255);
+          xPos = marginLeft;
+          headers.forEach((header, index) => {
+            doc.rect(xPos, yPosition - 4, colWidths[index], 5, 'F');
+            doc.text(header, xPos + 1, yPosition, { maxWidth: colWidths[index] - 2 });
+            xPos += colWidths[index];
+          });
+          yPosition += 6;
+          doc.setTextColor(0, 0, 0);
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(8);
+        }
+
+        // Alternate row background
+        if (rowIndex % 2 === 0) {
+          let xPos = marginLeft;
+          headers.forEach((_, index) => {
+            doc.setFillColor(240, 240, 240);
+            doc.rect(xPos, yPosition - 3, colWidths[index], 4, 'F');
+            xPos += colWidths[index];
+          });
+        }
+
+        // Row data
+        const rowData = [
+          String(data.train_Number || 'N/A'),
+          String(data.train_Name || 'N/A').slice(0, 12),
+          String(data.coach_uid || 'N/A'),
+          String(data.chain_status || 'N/A'),
+          String(data.latitude ?? 'N/A').slice(0, 8),
+          String(data.longitude ?? 'N/A').slice(0, 8),
+          String(data.memory ?? 'N/A').slice(0, 8),
+          String(data.error || 'N/A'),
+          String(data.date || 'N/A'),
+          String(data.time || 'N/A')
+        ];
+
+        xPos = marginLeft;
+        rowData.forEach((cellData, index) => {
+          doc.text(String(cellData).substring(0, 10), xPos + 1, yPosition, { 
+            maxWidth: colWidths[index] - 2,
+            overflow: 'ellipsis'
+          });
+          xPos += colWidths[index];
+        });
+
+        yPosition += 4;
+      });
+
+      // Save the PDF
+      const fileName = `coach_details_${trainNumber}_${coach}_${new Date().toISOString().split('T')[0]}.pdf`;
       doc.save(fileName);
       console.log(`PDF successfully generated: ${fileName}`);
-    } catch (pdfError) {
-      console.error("PDF generation error:", pdfError);
+      alert('PDF downloaded successfully!');
+      
+    } catch (error) {
+      console.error("PDF generation error:", error);
       alert("Failed to generate PDF. Please try again.");
     }
   };
@@ -169,7 +222,6 @@ const CoachDetails = () => {
       "Chain Status",
       "Latitude",
       "Longitude",
-      "Humidity",
       "Memory",
       "Error",
       "Date",
@@ -183,7 +235,6 @@ const CoachDetails = () => {
       data.chain_status || "N/A",
       data.latitude || "N/A",
       data.longitude || "N/A",
-      data.humidity || "N/A",
       data.memory || "N/A",
       data.error || "N/A",
       data.date || "N/A",
@@ -290,7 +341,6 @@ const CoachDetails = () => {
                   <th className="p-4 text-white font-semibold">Chain Status</th>
                   <th className="p-4 text-white font-semibold">Latitude</th>
                   <th className="p-4 text-white font-semibold">Longitude</th>
-                  <th className="p-4 text-white font-semibold">Humidity</th>
                   <th className="p-4 text-white font-semibold">Memory</th>
                   <th className="p-4 text-white font-semibold">Error</th>
                   <th className="p-4 text-white font-semibold">Date</th>
@@ -307,7 +357,6 @@ const CoachDetails = () => {
                       <td className="p-4 text-purple-100">{data.chain_status || "N/A"}</td>
                       <td className="p-4 text-purple-100">{data.latitude || "N/A"}</td>
                       <td className="p-4 text-purple-100">{data.longitude || "N/A"}</td>
-                      <td className="p-4 text-purple-100">{data.humidity ? `${data.humidity}%` : "N/A"}</td>
                       <td className="p-4 text-purple-100">{data.memory || "N/A"}</td>
                       <td className="p-4 text-purple-100">{data.error || "N/A"}</td>
                       <td className="p-4 text-purple-100">{data.date || "N/A"}</td>
@@ -316,7 +365,7 @@ const CoachDetails = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="11" className="p-8 text-center text-purple-200">
+                    <td colSpan="10" className="p-8 text-center text-purple-200">
                       <div className="flex flex-col items-center">
                         <p className="text-xl font-semibold mb-2">No data available</p>
                         <p className="text-sm">No sensor data found for this coach.</p>

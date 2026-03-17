@@ -45,7 +45,8 @@ function registerServiceWorker() {
     }
   });
 }
-registerServiceWorker();
+// Commenting service worker registration in dev to avoid stale cached bundles.
+// registerServiceWorker();
 // --- end PWA setup ---
 
 createRoot(document.getElementById('root')).render(
